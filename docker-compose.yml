@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # Redis service for Celery broker and approval system
+  redis:
+    image: redis:7-alpine
+    container_name: ai-video-bot-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ai-video-network
+
+  # Flask web application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-video-bot-web
+    ports:
+      - "5000:5000"
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID}
+      - RUNWAY_API_KEY=${RUNWAY_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - TEMP_DIR=/app/temp
+      - MAX_CONCURRENT_JOBS=5
+      - FILE_CLEANUP_HOURS=1
+      - FFMPEG_PATH=/app/bin/ffmpeg/ffmpeg
+      - FFPROBE_PATH=/app/bin/ffmpeg/ffprobe
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./temp:/app/temp
+      - ./bin/ffmpeg:/app/bin/ffmpeg
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ai-video-network
+    restart: unless-stopped
+
+  # Celery worker for video generation tasks
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-video-bot-worker
+    command: celery -A app.tasks worker --loglevel=info --concurrency=2
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID}
+      - RUNWAY_API_KEY=${RUNWAY_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - TEMP_DIR=/app/temp
+      - MAX_CONCURRENT_JOBS=5
+      - FILE_CLEANUP_HOURS=1
+      - FFMPEG_PATH=/app/bin/ffmpeg/ffmpeg
+      - FFPROBE_PATH=/app/bin/ffmpeg/ffprobe
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./temp:/app/temp
+      - ./bin/ffmpeg:/app/bin/ffmpeg
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-video-network
+    restart: unless-stopped
+
+networks:
+  ai-video-network:
+    driver: bridge
+
+volumes:
+  redis-data:

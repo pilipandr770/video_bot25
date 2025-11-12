@@ -1,0 +1,23 @@
+# Web Framework
+Flask==3.0.0
+gunicorn==21.2.0
+
+# Telegram Bot
+python-telegram-bot==20.7
+
+# AI Services
+openai==1.6.1
+
+# Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Logging
+structlog==23.2.0
+
+# Rate Limiting
+flask-limiter==3.5.0
