@@ -283,7 +283,8 @@ async def setup_telegram_webhook():
         return False
     
     try:
-        webhook_url = f"{Config.TELEGRAM_WEBHOOK_URL}/webhook"
+        # Use the webhook URL as-is (it should already include the /webhook path)
+        webhook_url = Config.TELEGRAM_WEBHOOK_URL
         
         logger.info(
             "setting_telegram_webhook",
@@ -410,37 +411,57 @@ def signal_handler(signum, frame):
 
 # Initialize application (must be called at module level for gunicorn)
 # This runs after all function definitions are complete
-try:
-    # Validate configuration
-    Config.validate()
-    logger.info("configuration_validated")
+# Only initialize once (first worker) to avoid duplicate webhook setup
+import threading
+_init_lock = threading.Lock()
+_initialized = False
+
+def _initialize_once():
+    """Initialize application components once across all workers."""
+    global _initialized
     
-    # Ensure required directories exist
-    Config.ensure_directories()
-    logger.info("directories_initialized", temp_dir=Config.TEMP_DIR)
-    
-    # Set up Telegram webhook
-    if Config.TELEGRAM_WEBHOOK_URL:
+    with _init_lock:
+        if _initialized:
+            logger.info("application_already_initialized_by_another_worker")
+            return
+        
         try:
-            # Run async webhook setup
-            asyncio.run(setup_telegram_webhook())
-        except Exception as e:
-            logger.error(
-                "failed_to_setup_webhook",
-                error=str(e),
-                exc_info=True
+            # Validate configuration
+            Config.validate()
+            logger.info("configuration_validated")
+            
+            # Ensure required directories exist
+            Config.ensure_directories()
+            logger.info("directories_initialized", temp_dir=Config.TEMP_DIR)
+            
+            # Set up Telegram webhook
+            if Config.TELEGRAM_WEBHOOK_URL:
+                try:
+                    # Run async webhook setup
+                    asyncio.run(setup_telegram_webhook())
+                except Exception as e:
+                    logger.error(
+                        "failed_to_setup_webhook",
+                        error=str(e),
+                        exc_info=True
+                    )
+                    # Don't fail startup if webhook setup fails
+            
+            logger.info(
+                "application_initialized",
+                max_concurrent_jobs=Config.MAX_CONCURRENT_JOBS,
+                target_video_duration=Config.TARGET_VIDEO_DURATION,
+                num_segments=Config.NUM_SEGMENTS
             )
-            # Don't fail startup if webhook setup fails
-    
-    logger.info(
-        "application_initialized",
-        max_concurrent_jobs=Config.MAX_CONCURRENT_JOBS,
-        target_video_duration=Config.TARGET_VIDEO_DURATION,
-        num_segments=Config.NUM_SEGMENTS
-    )
-except ValueError as e:
-    logger.error("configuration_error", error=str(e))
-    raise
+            
+            _initialized = True
+            
+        except ValueError as e:
+            logger.error("configuration_error", error=str(e))
+            raise
+
+# Run initialization
+_initialize_once()
 
 
 # Register signal handlers for graceful shutdown
