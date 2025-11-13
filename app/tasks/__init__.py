@@ -13,10 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 # Initialize Celery app with PostgreSQL as broker and backend
+# Add schema to connection URL
+database_url_with_schema = f"{Config.DATABASE_URL}?options=-c%20search_path%3D{Config.DATABASE_SCHEMA}%2Cpublic"
+
 celery_app = Celery(
     'ai_video_generator',
-    broker=f'sqla+{Config.DATABASE_URL}',
-    backend=f'db+{Config.DATABASE_URL}',
+    broker=f'sqla+{database_url_with_schema}',
+    backend=f'db+{database_url_with_schema}',
     include=['app.tasks.video_generation']
 )
 
@@ -41,6 +44,15 @@ celery_app.conf.update(
     database_table_names={
         'task': 'celery_taskmeta',
         'group': 'celery_groupmeta',
+    },
+    database_table_schemas={
+        'task': Config.DATABASE_SCHEMA,
+        'group': Config.DATABASE_SCHEMA,
+    },
+    database_engine_options={
+        'connect_args': {
+            'options': f'-c search_path={Config.DATABASE_SCHEMA},public'
+        }
     },
     
     # Retry settings
