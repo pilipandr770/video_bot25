@@ -224,7 +224,13 @@ def webhook():
         )
         
         # Process update asynchronously
-        result = asyncio.run(_process_webhook_update(update_data))
+        # Use new event loop to avoid conflicts with existing loops
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(_process_webhook_update(update_data))
+        finally:
+            loop.close()
         
         # Always return 200 to prevent Telegram from retrying
         return jsonify(result), 200
