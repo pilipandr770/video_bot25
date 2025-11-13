@@ -37,10 +37,10 @@ class Config:
     FFPROBE_PATH = os.getenv("FFPROBE_PATH", str(BASE_DIR / "bin" / "ffmpeg" / "ffprobe"))
     
     # Video Settings
-    TARGET_VIDEO_DURATION = 240  # 4 minutes in seconds
+    TARGET_VIDEO_DURATION = 50  # 50 seconds (10 segments × 5 seconds)
     SEGMENT_DURATION = 5  # 5 seconds per segment
     MAX_VIDEO_SIZE_MB = 50  # Telegram file size limit
-    NUM_SEGMENTS = TARGET_VIDEO_DURATION // SEGMENT_DURATION  # 48 segments
+    NUM_SEGMENTS = 10  # 10 segments: 3 intro + 4 main + 3 outro
     
     # Processing Settings
     MAX_PARALLEL_SEGMENTS = 3  # Maximum parallel segment generation

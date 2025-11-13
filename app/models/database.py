@@ -94,6 +94,7 @@ class VideoSegment(Base):
     # Text and prompts
     text_prompt = Column(Text)
     image_prompt = Column(Text)
+    animation_prompt = Column(Text)  # Prompt for video animation
     
     # Generated content paths
     image_path = Column(String(500))
