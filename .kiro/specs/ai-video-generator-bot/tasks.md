@@ -431,7 +431,8 @@
   - Протестировать базовую функциональность (если API ключи настроены)
   - _Requirements: 11.1, 11.3_
 
-- [-] 30. Deployment на Render.com
+- [x] 30. Deployment на Render.com
+
 
 
   - Создать аккаунт на Render.com и подключить GitHub репозиторий
