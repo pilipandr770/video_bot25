@@ -134,12 +134,14 @@ def get_user_id_from_request():
         return get_remote_address()
 
 
-# Configure rate limiter
+# Configure rate limiter with in-memory storage
+# Note: In-memory storage is suitable for single-instance deployments
+# For multi-instance deployments, consider using Redis or another shared storage
 limiter = Limiter(
     app=app,
     key_func=get_user_id_from_request,
     default_limits=[],  # No default limits, we'll apply them per route
-    storage_uri=Config.DATABASE_URL,
+    storage_uri="memory://",
     strategy="fixed-window"
 )
 
