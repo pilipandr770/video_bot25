@@ -268,6 +268,11 @@ async def setup_telegram_webhook():
     
     Requirements: 11.1
     """
+    # Initialize Telegram application first
+    from app.bot.webhook import initialize_telegram_application
+    await initialize_telegram_application()
+    logger.info("telegram_application_initialized")
+    
     if not Config.TELEGRAM_WEBHOOK_URL:
         logger.warning(
             "telegram_webhook_url_not_configured",

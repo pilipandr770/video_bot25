@@ -64,9 +64,26 @@ def create_telegram_application() -> Application:
     return application
 
 
+async def initialize_telegram_application() -> Application:
+    """
+    Initialize Telegram Application instance.
+    
+    Returns:
+        Initialized Application instance
+    """
+    global telegram_app
+    
+    if telegram_app is None:
+        telegram_app = create_telegram_application()
+        await telegram_app.initialize()
+        logger.info("Telegram application initialized")
+    
+    return telegram_app
+
+
 def get_telegram_application() -> Application:
     """
-    Get or create Telegram Application instance.
+    Get Telegram Application instance.
     
     Returns:
         Application instance
