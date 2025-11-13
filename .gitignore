@@ -63,3 +63,9 @@ celerybeat.pid
 
 # Redis
 dump.rdb
+
+# FFmpeg binaries (platform-specific, not needed in repo)
+bin/ffmpeg/ffmpeg
+bin/ffmpeg/ffmpeg.exe
+bin/ffmpeg/ffprobe
+bin/ffmpeg/ffprobe.exe

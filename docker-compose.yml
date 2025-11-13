@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Redis service for Celery broker and approval system
   redis:
@@ -34,12 +32,11 @@ services:
       - TEMP_DIR=/app/temp
       - MAX_CONCURRENT_JOBS=5
       - FILE_CLEANUP_HOURS=1
-      - FFMPEG_PATH=/app/bin/ffmpeg/ffmpeg
-      - FFPROBE_PATH=/app/bin/ffmpeg/ffprobe
+      - FFMPEG_PATH=ffmpeg
+      - FFPROBE_PATH=ffprobe
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./temp:/app/temp
-      - ./bin/ffmpeg:/app/bin/ffmpeg
     depends_on:
       redis:
         condition: service_healthy
@@ -68,12 +65,11 @@ services:
       - TEMP_DIR=/app/temp
       - MAX_CONCURRENT_JOBS=5
       - FILE_CLEANUP_HOURS=1
-      - FFMPEG_PATH=/app/bin/ffmpeg/ffmpeg
-      - FFPROBE_PATH=/app/bin/ffmpeg/ffprobe
+      - FFMPEG_PATH=ffmpeg
+      - FFPROBE_PATH=ffprobe
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./temp:/app/temp
-      - ./bin/ffmpeg:/app/bin/ffmpeg
     depends_on:
       redis:
         condition: service_healthy
