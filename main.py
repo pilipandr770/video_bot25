@@ -139,7 +139,7 @@ limiter = Limiter(
     app=app,
     key_func=get_user_id_from_request,
     default_limits=[],  # No default limits, we'll apply them per route
-    storage_uri=Config.REDIS_URL,
+    storage_uri=Config.DATABASE_URL,
     strategy="fixed-window"
 )
 
