@@ -24,8 +24,12 @@ class Config:
     # Runway Configuration
     RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
     
-    # Redis Configuration
+    # Redis Configuration (для Celery)
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    
+    # Database Configuration (PostgreSQL)
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    DATABASE_SCHEMA = os.getenv("DATABASE_SCHEMA", "ai_video_bot")
     
     # Application Settings
     MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "5"))
