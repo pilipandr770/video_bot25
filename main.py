@@ -156,40 +156,6 @@ logging.basicConfig(
 logger = structlog.get_logger()
 
 
-# Initialize application (must be called at module level for gunicorn)
-try:
-    # Validate configuration
-    Config.validate()
-    logger.info("configuration_validated")
-    
-    # Ensure required directories exist
-    Config.ensure_directories()
-    logger.info("directories_initialized", temp_dir=Config.TEMP_DIR)
-    
-    # Set up Telegram webhook
-    if Config.TELEGRAM_WEBHOOK_URL:
-        try:
-            # Run async webhook setup
-            asyncio.run(setup_telegram_webhook())
-        except Exception as e:
-            logger.error(
-                "failed_to_setup_webhook",
-                error=str(e),
-                exc_info=True
-            )
-            # Don't fail startup if webhook setup fails
-    
-    logger.info(
-        "application_initialized",
-        max_concurrent_jobs=Config.MAX_CONCURRENT_JOBS,
-        target_video_duration=Config.TARGET_VIDEO_DURATION,
-        num_segments=Config.NUM_SEGMENTS
-    )
-except ValueError as e:
-    logger.error("configuration_error", error=str(e))
-    raise
-
-
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint for Render.com."""
@@ -440,6 +406,41 @@ def signal_handler(signum, frame):
     
     # Exit gracefully
     sys.exit(0)
+
+
+# Initialize application (must be called at module level for gunicorn)
+# This runs after all function definitions are complete
+try:
+    # Validate configuration
+    Config.validate()
+    logger.info("configuration_validated")
+    
+    # Ensure required directories exist
+    Config.ensure_directories()
+    logger.info("directories_initialized", temp_dir=Config.TEMP_DIR)
+    
+    # Set up Telegram webhook
+    if Config.TELEGRAM_WEBHOOK_URL:
+        try:
+            # Run async webhook setup
+            asyncio.run(setup_telegram_webhook())
+        except Exception as e:
+            logger.error(
+                "failed_to_setup_webhook",
+                error=str(e),
+                exc_info=True
+            )
+            # Don't fail startup if webhook setup fails
+    
+    logger.info(
+        "application_initialized",
+        max_concurrent_jobs=Config.MAX_CONCURRENT_JOBS,
+        target_video_duration=Config.TARGET_VIDEO_DURATION,
+        num_segments=Config.NUM_SEGMENTS
+    )
+except ValueError as e:
+    logger.error("configuration_error", error=str(e))
+    raise
 
 
 # Register signal handlers for graceful shutdown
