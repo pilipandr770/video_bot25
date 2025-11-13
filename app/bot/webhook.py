@@ -9,6 +9,7 @@ them to appropriate handlers.
 import logging
 import hmac
 import hashlib
+import asyncio
 from typing import Optional
 
 from flask import Blueprint, request, jsonify
@@ -134,8 +135,52 @@ def validate_telegram_request(request_data: bytes, token: str, headers: Optional
         return False
 
 
+async def _process_webhook_update(update_data: dict) -> dict:
+    """
+    Async helper to process webhook update.
+    
+    Args:
+        update_data: Parsed JSON update data from Telegram
+        
+    Returns:
+        Dict with status and optional error message
+    """
+    try:
+        # Get or initialize application
+        app = get_telegram_application()
+        
+        # Initialize if not already initialized
+        if not app.running:
+            await app.initialize()
+            logger.info("Telegram application initialized in webhook handler")
+        
+        # Create Update object
+        update = Update.de_json(update_data, app.bot)
+        
+        # Process update through application
+        await app.process_update(update)
+        
+        logger.info(
+            "Webhook update processed successfully",
+            extra={"update_id": update.update_id}
+        )
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(
+            "Error processing webhook update",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            exc_info=True
+        )
+        return {"status": "error", "message": str(e)}
+
+
 @webhook_bp.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     """
     Main webhook endpoint for receiving Telegram updates.
     
@@ -178,30 +223,15 @@ async def webhook():
             }
         )
         
-        # Get or initialize application
-        app = get_telegram_application()
+        # Process update asynchronously
+        result = asyncio.run(_process_webhook_update(update_data))
         
-        # Initialize if not already initialized
-        if not app.running:
-            await app.initialize()
-            logger.info("Telegram application initialized in webhook handler")
-        
-        # Create Update object
-        update = Update.de_json(update_data, app.bot)
-        
-        # Process update through application
-        await app.process_update(update)
-        
-        logger.info(
-            "Webhook update processed successfully",
-            extra={"update_id": update.update_id}
-        )
-        
-        return jsonify({"status": "ok"}), 200
+        # Always return 200 to prevent Telegram from retrying
+        return jsonify(result), 200
         
     except Exception as e:
         logger.error(
-            "Error processing webhook update",
+            "Error in webhook endpoint",
             extra={
                 "error": str(e),
                 "error_type": type(e).__name__
@@ -210,7 +240,6 @@ async def webhook():
         )
         
         # Return 200 to prevent Telegram from retrying
-        # Log the error for investigation
         return jsonify({"status": "error", "message": "Internal error"}), 200
 
 
