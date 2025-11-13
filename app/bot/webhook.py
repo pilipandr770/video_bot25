@@ -178,11 +178,19 @@ async def webhook():
             }
         )
         
+        # Get or initialize application
+        app = get_telegram_application()
+        
+        # Initialize if not already initialized
+        if not app.running:
+            await app.initialize()
+            logger.info("Telegram application initialized in webhook handler")
+        
         # Create Update object
-        update = Update.de_json(update_data, get_telegram_application().bot)
+        update = Update.de_json(update_data, app.bot)
         
         # Process update through application
-        await get_telegram_application().process_update(update)
+        await app.process_update(update)
         
         logger.info(
             "Webhook update processed successfully",
