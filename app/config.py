@@ -24,10 +24,7 @@ class Config:
     # Runway Configuration
     RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
     
-    # Redis Configuration (для Celery)
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    
-    # Database Configuration (PostgreSQL)
+    # Database Configuration (PostgreSQL - используется для Celery и approval system)
     DATABASE_URL = os.getenv("DATABASE_URL")
     DATABASE_SCHEMA = os.getenv("DATABASE_SCHEMA", "ai_video_bot")
     

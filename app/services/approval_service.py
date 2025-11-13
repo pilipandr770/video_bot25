@@ -2,56 +2,89 @@
 Approval Service для управления процессом утверждения этапов генерации видео.
 
 Этот модуль предоставляет ApprovalManager для координации утверждений пользователем
-различных этапов генерации (сценарий, изображения, видео) через Redis.
+различных этапов генерации (сценарий, изображения, видео) через PostgreSQL.
 """
 
 import time
 import logging
 from typing import Optional
-from redis import Redis
+from datetime import datetime, timedelta
+from sqlalchemy import create_engine, Column, String, DateTime, Integer
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from app.config import Config
 
 logger = logging.getLogger(__name__)
+
+Base = declarative_base()
+
+
+class ApprovalStatus(Base):
+    """Модель для хранения статусов утверждений в PostgreSQL."""
+    __tablename__ = 'approval_statuses'
+    __table_args__ = {'schema': Config.DATABASE_SCHEMA}
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(100), nullable=False, index=True)
+    approval_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False)  # 'approved' or 'cancelled'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
 
 
 class ApprovalManager:
     """
     Менеджер для управления утверждениями этапов генерации видео.
     
-    Использует Redis для хранения статусов утверждений с TTL 15 минут.
+    Использует PostgreSQL для хранения статусов утверждений с TTL 15 минут.
     Поддерживает три типа утверждений: 'script', 'images', 'videos'.
     """
     
     # Константы
     APPROVAL_TIMEOUT = 600  # 10 минут в секундах
     POLL_INTERVAL = 2  # 2 секунды между проверками
-    REDIS_TTL = 900  # 15 минут в секундах
+    APPROVAL_TTL_MINUTES = 15  # 15 минут TTL
     
     # Возможные статусы
     STATUS_APPROVED = "approved"
     STATUS_CANCELLED = "cancelled"
     
-    def __init__(self, redis_client: Redis):
+    def __init__(self, db_session: Session = None):
         """
-        Инициализация ApprovalManager с Redis клиентом.
+        Инициализация ApprovalManager с PostgreSQL сессией.
         
         Args:
-            redis_client: Экземпляр Redis клиента для хранения состояний
+            db_session: SQLAlchemy сессия (опционально, создается автоматически)
         """
-        self.redis = redis_client
-        logger.info("ApprovalManager initialized")
+        if db_session:
+            self.session = db_session
+            self._owns_session = False
+        else:
+            engine = create_engine(Config.DATABASE_URL)
+            # Создаем таблицу если не существует
+            Base.metadata.create_all(engine, checkfirst=True)
+            SessionLocal = sessionmaker(bind=engine)
+            self.session = SessionLocal()
+            self._owns_session = True
+        
+        logger.info("ApprovalManager initialized with PostgreSQL")
     
-    def _get_redis_key(self, job_id: str, approval_type: str) -> str:
-        """
-        Генерация Redis ключа для утверждения.
-        
-        Args:
-            job_id: Уникальный идентификатор задачи
-            approval_type: Тип утверждения ('script', 'images', 'videos')
-            
-        Returns:
-            Строка формата "approval:{job_id}:{type}"
-        """
-        return f"approval:{job_id}:{approval_type}"
+    def __del__(self):
+        """Закрытие сессии при удалении объекта."""
+        if self._owns_session and hasattr(self, 'session'):
+            self.session.close()
+    
+    def _cleanup_expired(self):
+        """Удаление истекших записей из базы данных."""
+        try:
+            now = datetime.utcnow()
+            self.session.query(ApprovalStatus).filter(
+                ApprovalStatus.expires_at < now
+            ).delete()
+            self.session.commit()
+        except Exception as e:
+            logger.error(f"Error cleaning up expired approvals: {e}")
+            self.session.rollback()
     
     def wait_for_approval(
         self, 
@@ -60,9 +93,9 @@ class ApprovalManager:
         timeout: int = None
     ) -> bool:
         """
-        Ожидание утверждения от пользователя с polling Redis.
+        Ожидание утверждения от пользователя с polling PostgreSQL.
         
-        Проверяет Redis каждые 2 секунды на наличие статуса утверждения.
+        Проверяет базу данных каждые 2 секунды на наличие статуса утверждения.
         Возвращает True если утверждено, False если отменено или истек timeout.
         
         Args:
@@ -76,7 +109,6 @@ class ApprovalManager:
         if timeout is None:
             timeout = self.APPROVAL_TIMEOUT
         
-        redis_key = self._get_redis_key(job_id, approval_type)
         start_time = time.time()
         
         logger.info(
@@ -94,25 +126,32 @@ class ApprovalManager:
                 )
                 return False
             
-            # Проверка статуса в Redis
-            status = self.redis.get(redis_key)
+            # Проверка статуса в базе данных
+            try:
+                approval = self.session.query(ApprovalStatus).filter(
+                    ApprovalStatus.job_id == job_id,
+                    ApprovalStatus.approval_type == approval_type,
+                    ApprovalStatus.expires_at > datetime.utcnow()
+                ).first()
+                
+                if approval:
+                    if approval.status == self.STATUS_APPROVED:
+                        logger.info(
+                            f"Approval received: job_id={job_id}, type={approval_type}, "
+                            f"elapsed={elapsed_time:.1f}s"
+                        )
+                        return True
+                    
+                    elif approval.status == self.STATUS_CANCELLED:
+                        logger.info(
+                            f"Approval cancelled: job_id={job_id}, type={approval_type}, "
+                            f"elapsed={elapsed_time:.1f}s"
+                        )
+                        return False
             
-            if status:
-                status_str = status.decode('utf-8') if isinstance(status, bytes) else status
-                
-                if status_str == self.STATUS_APPROVED:
-                    logger.info(
-                        f"Approval received: job_id={job_id}, type={approval_type}, "
-                        f"elapsed={elapsed_time:.1f}s"
-                    )
-                    return True
-                
-                elif status_str == self.STATUS_CANCELLED:
-                    logger.info(
-                        f"Approval cancelled: job_id={job_id}, type={approval_type}, "
-                        f"elapsed={elapsed_time:.1f}s"
-                    )
-                    return False
+            except Exception as e:
+                logger.error(f"Error checking approval status: {e}")
+                self.session.rollback()
             
             # Ожидание перед следующей проверкой
             time.sleep(self.POLL_INTERVAL)
@@ -121,45 +160,81 @@ class ApprovalManager:
         """
         Утверждение этапа генерации.
         
-        Устанавливает статус "approved" в Redis с TTL 15 минут.
+        Устанавливает статус "approved" в PostgreSQL с TTL 15 минут.
         
         Args:
             job_id: Уникальный идентификатор задачи
             approval_type: Тип утверждения ('script', 'images', 'videos')
         """
-        redis_key = self._get_redis_key(job_id, approval_type)
-        
-        self.redis.setex(
-            redis_key,
-            self.REDIS_TTL,
-            self.STATUS_APPROVED
-        )
-        
-        logger.info(
-            f"Approval set: job_id={job_id}, type={approval_type}, status=approved"
-        )
+        try:
+            # Удаляем старую запись если существует
+            self.session.query(ApprovalStatus).filter(
+                ApprovalStatus.job_id == job_id,
+                ApprovalStatus.approval_type == approval_type
+            ).delete()
+            
+            # Создаем новую запись
+            expires_at = datetime.utcnow() + timedelta(minutes=self.APPROVAL_TTL_MINUTES)
+            approval = ApprovalStatus(
+                job_id=job_id,
+                approval_type=approval_type,
+                status=self.STATUS_APPROVED,
+                expires_at=expires_at
+            )
+            self.session.add(approval)
+            self.session.commit()
+            
+            logger.info(
+                f"Approval set: job_id={job_id}, type={approval_type}, status=approved"
+            )
+            
+            # Очистка истекших записей
+            self._cleanup_expired()
+            
+        except Exception as e:
+            logger.error(f"Error setting approval: {e}")
+            self.session.rollback()
+            raise
     
     def cancel(self, job_id: str, approval_type: str) -> None:
         """
         Отмена задачи генерации.
         
-        Устанавливает статус "cancelled" в Redis с TTL 15 минут.
+        Устанавливает статус "cancelled" в PostgreSQL с TTL 15 минут.
         
         Args:
             job_id: Уникальный идентификатор задачи
             approval_type: Тип утверждения ('script', 'images', 'videos')
         """
-        redis_key = self._get_redis_key(job_id, approval_type)
-        
-        self.redis.setex(
-            redis_key,
-            self.REDIS_TTL,
-            self.STATUS_CANCELLED
-        )
-        
-        logger.info(
-            f"Approval cancelled: job_id={job_id}, type={approval_type}, status=cancelled"
-        )
+        try:
+            # Удаляем старую запись если существует
+            self.session.query(ApprovalStatus).filter(
+                ApprovalStatus.job_id == job_id,
+                ApprovalStatus.approval_type == approval_type
+            ).delete()
+            
+            # Создаем новую запись
+            expires_at = datetime.utcnow() + timedelta(minutes=self.APPROVAL_TTL_MINUTES)
+            approval = ApprovalStatus(
+                job_id=job_id,
+                approval_type=approval_type,
+                status=self.STATUS_CANCELLED,
+                expires_at=expires_at
+            )
+            self.session.add(approval)
+            self.session.commit()
+            
+            logger.info(
+                f"Approval cancelled: job_id={job_id}, type={approval_type}, status=cancelled"
+            )
+            
+            # Очистка истекших записей
+            self._cleanup_expired()
+            
+        except Exception as e:
+            logger.error(f"Error setting cancellation: {e}")
+            self.session.rollback()
+            raise
     
     def is_approved(self, job_id: str, approval_type: str) -> Optional[bool]:
         """
@@ -172,17 +247,24 @@ class ApprovalManager:
         Returns:
             True если утверждено, False если отменено, None если статус не установлен
         """
-        redis_key = self._get_redis_key(job_id, approval_type)
-        status = self.redis.get(redis_key)
-        
-        if status is None:
+        try:
+            approval = self.session.query(ApprovalStatus).filter(
+                ApprovalStatus.job_id == job_id,
+                ApprovalStatus.approval_type == approval_type,
+                ApprovalStatus.expires_at > datetime.utcnow()
+            ).first()
+            
+            if approval is None:
+                return None
+            
+            if approval.status == self.STATUS_APPROVED:
+                return True
+            elif approval.status == self.STATUS_CANCELLED:
+                return False
+            
             return None
-        
-        status_str = status.decode('utf-8') if isinstance(status, bytes) else status
-        
-        if status_str == self.STATUS_APPROVED:
-            return True
-        elif status_str == self.STATUS_CANCELLED:
-            return False
-        
-        return None
+            
+        except Exception as e:
+            logger.error(f"Error checking approval status: {e}")
+            self.session.rollback()
+            return None

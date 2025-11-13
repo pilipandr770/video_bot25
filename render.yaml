@@ -19,11 +19,10 @@ services:
         sync: false
       - key: RUNWAY_API_KEY
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: ai-video-redis
-          property: connectionString
+      - key: DATABASE_URL
+        value: postgresql://ittoken_db_user:Xm98VVSZv7cMJkopkdWRkgvZzC7Aly42@dpg-d0visga4d50c73ekmu4g-a.frankfurt-postgres.render.com/ittoken_db
+      - key: DATABASE_SCHEMA
+        value: ai_video_bot
       - key: TEMP_DIR
         value: /app/temp
       - key: MAX_CONCURRENT_JOBS
@@ -59,11 +58,10 @@ services:
         sync: false
       - key: RUNWAY_API_KEY
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: ai-video-redis
-          property: connectionString
+      - key: DATABASE_URL
+        value: postgresql://ittoken_db_user:Xm98VVSZv7cMJkopkdWRkgvZzC7Aly42@dpg-d0visga4d50c73ekmu4g-a.frankfurt-postgres.render.com/ittoken_db
+      - key: DATABASE_SCHEMA
+        value: ai_video_bot
       - key: TEMP_DIR
         value: /app/temp
       - key: MAX_CONCURRENT_JOBS
@@ -82,20 +80,5 @@ services:
       sizeGB: 20
     autoDeploy: true
 
-  # Redis Service (for Celery and rate limiting)
-  - type: redis
-    name: ai-video-redis
-    region: frankfurt
-    plan: starter
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
-
-  # PostgreSQL Database (optional - for job history and user data)
-  # Uncomment if you want to use PostgreSQL
-  # - type: pserv
-  #   name: ai-video-postgres
-  #   region: frankfurt
-  #   plan: starter
-  #   databaseName: ai_video_bot
-  #   databaseUser: ai_video_bot_user
-  #   ipAllowList: []
+# Note: Using existing PostgreSQL database dpg-d0visga4d50c73ekmu4g
+# Database URL is configured in environment variables above

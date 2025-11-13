@@ -8,9 +8,8 @@ python-telegram-bot==20.7
 # AI Services
 openai==1.6.1
 
-# Task Queue
-celery==5.3.4
-redis==5.0.1
+# Task Queue (using PostgreSQL as broker/backend)
+celery[sqlalchemy]==5.3.4
 
 # Database
 psycopg2-binary==2.9.9

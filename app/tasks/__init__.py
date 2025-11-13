@@ -12,11 +12,11 @@ from app.config import Config
 logger = logging.getLogger(__name__)
 
 
-# Initialize Celery app
+# Initialize Celery app with PostgreSQL as broker and backend
 celery_app = Celery(
     'ai_video_generator',
-    broker=Config.REDIS_URL,
-    backend=Config.REDIS_URL,
+    broker=f'sqla+{Config.DATABASE_URL}',
+    backend=f'db+{Config.DATABASE_URL}',
     include=['app.tasks.video_generation']
 )
 
@@ -38,8 +38,9 @@ celery_app.conf.update(
     
     # Result backend settings
     result_expires=3600,  # Results expire after 1 hour
-    result_backend_transport_options={
-        'master_name': 'mymaster',
+    database_table_names={
+        'task': 'celery_taskmeta',
+        'group': 'celery_groupmeta',
     },
     
     # Retry settings
@@ -63,7 +64,7 @@ celery_app.conf.update(
 )
 
 logger.info(
-    f"Celery app initialized with broker: {Config.REDIS_URL[:20]}... "
+    f"Celery app initialized with PostgreSQL broker "
     f"(scheduled tasks: cleanup_old_files)"
 )
 

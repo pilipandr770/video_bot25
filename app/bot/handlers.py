@@ -14,8 +14,6 @@ from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from redis import Redis
-
 from app.config import Config
 from app.services.approval_service import ApprovalManager
 from app.tasks.video_generation import generate_video_task
@@ -24,9 +22,8 @@ from app.tasks.video_generation import generate_video_task
 logger = logging.getLogger(__name__)
 
 
-# Initialize Redis client for approval manager
-redis_client = Redis.from_url(Config.REDIS_URL, decode_responses=False)
-approval_manager = ApprovalManager(redis_client)
+# Initialize approval manager with PostgreSQL
+approval_manager = ApprovalManager()
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

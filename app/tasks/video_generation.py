@@ -11,7 +11,6 @@ import os
 import time
 import asyncio
 from typing import Optional
-from redis import Redis
 from telegram import Bot
 from telegram.error import TelegramError
 
@@ -94,9 +93,8 @@ def generate_video_task(
     ffmpeg_util = FFmpegUtil()
     notification_service = NotificationService()
     
-    # Initialize Redis and approval manager
-    redis_client = Redis.from_url(Config.REDIS_URL, decode_responses=False)
-    approval_manager = ApprovalManager(redis_client)
+    # Initialize approval manager with PostgreSQL
+    approval_manager = ApprovalManager()
     
     # Create job directory
     job_dir = file_manager.create_job_directory(job_id)
