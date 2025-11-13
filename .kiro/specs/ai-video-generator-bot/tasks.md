@@ -59,8 +59,10 @@
 
 
   - Создать app/services/openai_service.py с классом OpenAIService
-  - Реализовать __init__ с инициализацией OpenAI client (api_key, assistant_id)
-  - Реализовать generate_script для генерации сценария через OpenAI Assistant
+  - Реализовать __init__ с инициализацией OpenAI client (api_key, script_assistant_id, segment_assistant_id, animation_assistant_id)
+  - Реализовать generate_script для генерации сценария через Script Assistant
+  - Реализовать split_and_generate_prompts для разбивки сценария через Segment Assistant
+  - Реализовать generate_animation_prompt для создания промптов анимации через Animation Assistant
   - Реализовать transcribe_audio для транскрибации голосовых сообщений через Whisper
   - Реализовать generate_speech для генерации аудио через TTS API
   - Добавить retry логику с экспоненциальной задержкой (3 попытки)
@@ -103,10 +105,11 @@
 
 
   - Создать app/services/script_service.py с классом ScriptService
-  - Реализовать split_script для разделения сценария на 48 сегментов по 5 секунд
-  - Реализовать generate_image_prompt для создания промпта изображения из сегмента
-  - Реализовать generate_animation_prompt для создания промпта анимации из сегмента
+  - Реализовать split_script для разделения сценария на 10 сегментов по 5 секунд (3 intro + 4 main + 3 outro)
+  - Интегрировать с Segment Assistant для генерации промптов изображений
+  - Интегрировать с Animation Assistant для генерации промптов анимации
   - Добавить логику расчета временных меток для каждого сегмента
+  - Добавить определение типа сегмента (intro/main/outro)
   - _Requirements: 3.3, 3.4, 4.1, 5.1_
 
 - [x] 8. Реализация Video Service для генерации видео сегментов
@@ -117,7 +120,7 @@
   - Создать app/services/video_service.py с классом VideoService
   - Реализовать generate_all_segments с параллельной обработкой (ThreadPoolExecutor, max_workers=3)
   - Реализовать generate_segment для генерации одного сегмента (изображение + анимация)
-  - Добавить progress_callback для отправки обновлений каждые 10 сегментов
+  - Добавить progress_callback для отправки обновлений каждые 5 сегментов (для 10-сегментной версии)
   - Интегрировать RunwayService и ScriptService
   - _Requirements: 4.4, 4.5, 4.6, 5.4, 5.5, 5.6_
 
@@ -128,7 +131,7 @@
 
 
   - Создать app/services/audio_service.py с классом AudioService
-  - Реализовать generate_audio для создания аудиофайла из полного сценария
+  - Реализовать generate_audio для создания аудиофайла из полного сценария (целевая длительность 50 сек)
   - Реализовать adjust_audio_duration для корректировки длительности через FFmpeg
   - Интегрировать OpenAIService для TTS
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
@@ -214,8 +217,8 @@
   - Реализовать send_error_message для отправки понятных сообщений об ошибках
   - Реализовать send_final_video для отправки готового видео пользователю
   - Реализовать send_script_approval для отправки сценария с inline кнопками (✅ Утвердить, ❌ Отменить)
-  - Реализовать send_images_approval для отправки галереи из первых 5 изображений с inline кнопками
-  - Реализовать send_videos_approval для отправки первых 3 видео сегментов с inline кнопками
+  - Реализовать send_images_approval для отправки галереи из первых 3 изображений с inline кнопками
+  - Реализовать send_videos_approval для отправки первых 2 видео сегментов с inline кнопками
   - Добавить словарь ERROR_MESSAGES с понятными текстами ошибок
   - Использовать InlineKeyboardMarkup и InlineKeyboardButton для создания кнопок
   - _Requirements: 3A.1, 3A.2, 4A.1, 4A.2, 5A.1, 5A.2, 8.1, 8.2, 8.4, 9.2, 9.3, 9.4, 9.5, 10.2, 10.3_
@@ -289,7 +292,7 @@
   - Настроить web service (Flask app) с gunicorn
   - Настроить worker service (Celery worker)
   - Настроить redis service
-  - Добавить переменные окружения (TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, OPENAI_ASSISTANT_ID, RUNWAY_API_KEY)
+  - Добавить переменные окружения (TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, OPENAI_SCRIPT_ASSISTANT_ID, OPENAI_SEGMENT_ASSISTANT_ID, OPENAI_ANIMATION_ASSISTANT_ID, RUNWAY_API_KEY)
   - Настроить disk storage для temp файлов (10 GB для web, 20 GB для worker)
   - Настроить автоматическое развертывание при push в main ветку
   - _Requirements: 11.1, 11.2, 11.4_
@@ -328,14 +331,37 @@
 
 ## Оставшиеся задачи
 
-- [ ] 23. Загрузка FFmpeg бинарников
+- [x] 23. Создание инструкций для специализированных OpenAI Assistants
+
+
+
+
+
+  - Создать документ с инструкциями для Script Assistant (генерация 50-секундного сценария с 3 частями)
+  - Создать документ с инструкциями для Segment Assistant (разбивка на 10 сегментов + промпты изображений)
+  - Создать документ с инструкциями для Animation Assistant (промпты для анимации видео)
+  - Создать трех Assistant'ов в OpenAI Playground с соответствующими инструкциями
+  - Получить три Assistant ID и добавить их в .env
+  - Протестировать каждого Assistant'а отдельно
+  - _Requirements: 3.1, 3.2, 4.1, 4.2, 5.1, 5.2_
+
+- [x] 24. Загрузка FFmpeg бинарников
+
+
+
+
   - Выполнить скрипт bin/ffmpeg/download_ffmpeg.sh для загрузки FFmpeg static build
   - Проверить наличие ffmpeg и ffprobe бинарников в bin/ffmpeg/
   - Установить права на выполнение (chmod +x)
   - Проверить работу FFmpeg командой ./bin/ffmpeg/ffmpeg -version
   - _Requirements: 7.1, 7.2_
 
-- [ ] 24. Интеграция notification service в video generation task
+- [x] 25. Интеграция notification service в video generation task
+
+
+
+
+
   - Заменить placeholder функции (_send_status_notification, _send_progress_notification и т.д.) в app/tasks/video_generation.py
   - Импортировать NotificationService из app.bot.notifications
   - Создать экземпляр NotificationService в generate_video_task
@@ -343,7 +369,11 @@
   - Добавить async/await обработку для всех notification вызовов
   - _Requirements: 8.1, 8.2, 8.4, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 25. Реализация обработки голосовых сообщений в video generation task
+- [x] 26. Реализация обработки голосовых сообщений в video generation task
+
+
+
+
   - Добавить проверку на специальный маркер "__VOICE_MESSAGE__|{file_id}" в prompt
   - Если обнаружен маркер, загрузить голосовой файл через Telegram API
   - Вызвать openai_service.transcribe_audio для распознавания речи
@@ -351,7 +381,12 @@
   - Добавить обработку ошибок транскрибации с понятным сообщением пользователю
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 26. Разделение генерации изображений и анимации в video service
+- [x] 27. Разделение генерации изображений и анимации в video service
+
+
+
+
+
   - Модифицировать VideoService.generate_segment для раздельной генерации изображений и анимации
   - Создать метод generate_images_only для генерации только изображений (этап 3)
   - Создать метод animate_images_only для анимации существующих изображений (этап 5)
@@ -365,12 +400,27 @@
   - Создать .env.example файл с примерами всех необходимых переменных для GitHub
   - Создать .env файл для локальной разработки с placeholder значениями
   - Документировать процесс получения TELEGRAM_BOT_TOKEN (через @BotFather)
-  - Документировать процесс получения OPENAI_API_KEY и OPENAI_ASSISTANT_ID
+  - Документировать процесс получения OPENAI_API_KEY и трех Assistant IDs (Script, Segment, Animation)
   - Документировать процесс получения RUNWAY_API_KEY
   - Добавить инструкции по настройке TELEGRAM_WEBHOOK_URL
+  - Добавить конфигурацию для 10 сегментов (NUM_SEGMENTS=10, TARGET_VIDEO_DURATION=50)
   - _Requirements: 11.4_
 
-- [ ] 28. Локальное тестирование в Docker
+- [x] 29. Локальное тестирование в Docker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   - Запустить Redis контейнер для локального тестирования
   - Собрать Docker образ приложения
   - Запустить Flask web контейнер
@@ -381,7 +431,9 @@
   - Протестировать базовую функциональность (если API ключи настроены)
   - _Requirements: 11.1, 11.3_
 
-- [ ] 29. Deployment на Render.com
+- [-] 30. Deployment на Render.com
+
+
   - Создать аккаунт на Render.com и подключить GitHub репозиторий
   - Настроить три сервиса согласно render.yaml (web, worker, redis)
   - Добавить все необходимые environment variables в настройках Render
@@ -391,7 +443,7 @@
   - Настроить Telegram webhook через API (setWebhook)
   - _Requirements: 11.1, 11.2, 11.3_
 
-- [ ] 30. Финальное тестирование в production
+- [ ] 31. Финальное тестирование в production
   - Отправить тестовое текстовое сообщение боту
   - Проверить получение и утверждение сценария
   - Проверить получение и утверждение изображений

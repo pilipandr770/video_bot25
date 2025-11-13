@@ -4,7 +4,32 @@ This directory contains FFmpeg binaries required for video processing.
 
 ## Installation
 
-### For Linux x64 (Render.com deployment)
+### For Windows (Local Development)
+
+**Option 1: Use existing binaries (Recommended)**
+
+FFmpeg binaries for Windows are already included in this directory:
+- `ffmpeg.exe` - FFmpeg version 8.0
+- `ffprobe.exe` - FFprobe version 8.0
+
+Verify they work:
+```powershell
+.\bin\ffmpeg\ffmpeg.exe -version
+.\bin\ffmpeg\ffprobe.exe -version
+```
+
+**Option 2: Download fresh binaries**
+
+Run the PowerShell download script from the project root:
+```powershell
+.\download_ffmpeg_windows.ps1
+```
+
+This will automatically download and install the latest FFmpeg build for Windows.
+
+### For Linux x64 (Render.com Deployment)
+
+**Important:** Linux binaries are NOT included in the repository. They must be downloaded during deployment.
 
 Run the download script to automatically download and install FFmpeg:
 
@@ -20,9 +45,7 @@ This will:
 4. Set executable permissions
 5. Clean up temporary files
 
-### Manual Installation
-
-If you prefer to install manually:
+**Manual Installation (Linux):**
 
 ```bash
 # Download FFmpeg static build
@@ -44,11 +67,16 @@ rm -rf ffmpeg-*-amd64-static*
 
 ## Verification
 
-After installation, verify FFmpeg is working:
+### Windows
+```powershell
+.\bin\ffmpeg\ffmpeg.exe -version
+.\bin\ffmpeg\ffprobe.exe -version
+```
 
+### Linux
 ```bash
-./ffmpeg -version
-./ffprobe -version
+./bin/ffmpeg/ffmpeg -version
+./bin/ffmpeg/ffprobe -version
 ```
 
 ## Usage in Application

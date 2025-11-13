@@ -9,8 +9,11 @@ import logging
 import structlog
 import os
 import time
+import asyncio
 from typing import Optional
 from redis import Redis
+from telegram import Bot
+from telegram.error import TelegramError
 
 from app.tasks import celery_app
 from app.config import Config
@@ -21,6 +24,7 @@ from app.services.script_service import ScriptService
 from app.services.video_service import VideoService
 from app.services.audio_service import AudioService
 from app.services.approval_service import ApprovalManager
+from app.bot.notifications import NotificationService
 from app.utils.file_manager import FileManager
 from app.utils.ffmpeg import FFmpegUtil
 
@@ -88,6 +92,7 @@ def generate_video_task(
     video_service = VideoService(runway_service, script_service, file_manager)
     audio_service = AudioService(openai_service)
     ffmpeg_util = FFmpegUtil()
+    notification_service = NotificationService()
     
     # Initialize Redis and approval manager
     redis_client = Redis.from_url(Config.REDIS_URL, decode_responses=False)
@@ -103,12 +108,65 @@ def generate_video_task(
     }
     
     try:
+        # ========== STAGE 0: Handle Voice Message (if applicable) ==========
+        actual_prompt = prompt
+        
+        # Check if this is a voice message that needs transcription
+        if prompt.startswith("__VOICE_MESSAGE__|"):
+            stage_start = time.time()
+            logger.info("stage_started", job_id=job_id, stage="transcribe_voice", stage_number=0)
+            asyncio.run(notification_service.send_status_update(
+                chat_id, 
+                JobStatus.GENERATING_SCRIPT,  # Use existing status
+                job_id,
+                custom_message="🎤 Распознаю голосовое сообщение..."
+            ))
+            
+            try:
+                actual_prompt = _transcribe_voice_message(
+                    prompt,
+                    openai_service,
+                    job_id,
+                    chat_id
+                )
+                
+                stage_duration = time.time() - stage_start
+                logger.info(
+                    "stage_completed",
+                    job_id=job_id,
+                    stage="transcribe_voice",
+                    duration_seconds=round(stage_duration, 2),
+                    transcribed_length=len(actual_prompt),
+                    transcribed_words=len(actual_prompt.split())
+                )
+                
+                # Send transcribed text to user for confirmation
+                asyncio.run(notification_service.send_message(
+                    chat_id,
+                    f"✅ Голосовое сообщение распознано:\n\n\"{actual_prompt}\"\n\n"
+                    f"Начинаю генерацию сценария..."
+                ))
+                
+            except Exception as e:
+                logger.error(
+                    "voice_transcription_failed",
+                    job_id=job_id,
+                    error=str(e),
+                    exc_info=True
+                )
+                asyncio.run(notification_service.send_error_message(
+                    chat_id,
+                    "transcription_error",
+                    job_id
+                ))
+                raise VideoGenerationError(f"Failed to transcribe voice message: {str(e)}") from e
+        
         # ========== STAGE 1: Generate Script ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="generate_script", stage_number=1)
-        _send_status_notification(chat_id, JobStatus.GENERATING_SCRIPT)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.GENERATING_SCRIPT, job_id))
         
-        script = _generate_script(openai_service, prompt, job_id)
+        script = _generate_script(openai_service, actual_prompt, job_id)
         
         stage_duration = time.time() - stage_start
         metrics["stages"]["generate_script"] = {
@@ -129,8 +187,8 @@ def generate_video_task(
         # ========== STAGE 2: Script Approval ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="script_approval", stage_number=2)
-        _send_status_notification(chat_id, JobStatus.AWAITING_SCRIPT_APPROVAL)
-        _send_script_approval_request(chat_id, job_id, script)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.AWAITING_SCRIPT_APPROVAL, job_id))
+        asyncio.run(notification_service.send_script_approval(chat_id, job_id, script))
         
         approved = approval_manager.wait_for_approval(
             job_id,
@@ -148,7 +206,7 @@ def generate_video_task(
                 reason="user_cancelled_or_timeout",
                 wait_duration_seconds=round(stage_duration, 2)
             )
-            _handle_cancellation(job_id, file_manager, chat_id, "script")
+            _handle_cancellation(job_id, file_manager, notification_service, chat_id, "script")
             return {"status": "cancelled", "stage": "script_approval"}
         
         metrics["stages"]["script_approval"] = {
@@ -163,12 +221,12 @@ def generate_video_task(
             duration_seconds=round(stage_duration, 2),
             approved=True
         )
-        _send_status_notification(chat_id, JobStatus.SCRIPT_APPROVED)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.SCRIPT_APPROVED, job_id))
         
         # ========== STAGE 3: Generate Images ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="generate_images", stage_number=3)
-        _send_status_notification(chat_id, JobStatus.GENERATING_IMAGES)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.GENERATING_IMAGES, job_id))
         
         segments = script_service.split_script(script)
         logger.info(
@@ -183,6 +241,7 @@ def generate_video_task(
             video_service,
             job_id,
             segments,
+            notification_service,
             chat_id
         )
         
@@ -207,14 +266,14 @@ def generate_video_task(
         # ========== STAGE 4: Images Approval ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="images_approval", stage_number=4)
-        _send_status_notification(chat_id, JobStatus.AWAITING_IMAGES_APPROVAL)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.AWAITING_IMAGES_APPROVAL, job_id))
         
         # Get first 5 image paths for preview
         preview_images = [
             seg.image_path for seg in video_segments[:5]
             if seg.image_path
         ]
-        _send_images_approval_request(chat_id, job_id, preview_images)
+        asyncio.run(notification_service.send_images_approval(chat_id, job_id, preview_images))
         
         approved = approval_manager.wait_for_approval(
             job_id,
@@ -232,7 +291,7 @@ def generate_video_task(
                 reason="user_cancelled_or_timeout",
                 wait_duration_seconds=round(stage_duration, 2)
             )
-            _handle_cancellation(job_id, file_manager, chat_id, "images")
+            _handle_cancellation(job_id, file_manager, notification_service, chat_id, "images")
             return {"status": "cancelled", "stage": "images_approval"}
         
         metrics["stages"]["images_approval"] = {
@@ -248,18 +307,19 @@ def generate_video_task(
             duration_seconds=round(stage_duration, 2),
             approved=True
         )
-        _send_status_notification(chat_id, JobStatus.IMAGES_APPROVED)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.IMAGES_APPROVED, job_id))
         
         # ========== STAGE 5: Animate Videos ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="animate_videos", stage_number=5)
-        _send_status_notification(chat_id, JobStatus.ANIMATING_VIDEOS)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.ANIMATING_VIDEOS, job_id))
         
         video_segments = _animate_videos(
             video_service,
             runway_service,
             job_id,
             video_segments,
+            notification_service,
             chat_id
         )
         
@@ -283,14 +343,14 @@ def generate_video_task(
         # ========== STAGE 6: Videos Approval ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="videos_approval", stage_number=6)
-        _send_status_notification(chat_id, JobStatus.AWAITING_VIDEOS_APPROVAL)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.AWAITING_VIDEOS_APPROVAL, job_id))
         
         # Get first 3 video paths for preview
         preview_videos = [
             seg.video_path for seg in video_segments[:3]
             if seg.video_path
         ]
-        _send_videos_approval_request(chat_id, job_id, preview_videos)
+        asyncio.run(notification_service.send_videos_approval(chat_id, job_id, preview_videos))
         
         approved = approval_manager.wait_for_approval(
             job_id,
@@ -308,7 +368,7 @@ def generate_video_task(
                 reason="user_cancelled_or_timeout",
                 wait_duration_seconds=round(stage_duration, 2)
             )
-            _handle_cancellation(job_id, file_manager, chat_id, "videos")
+            _handle_cancellation(job_id, file_manager, notification_service, chat_id, "videos")
             return {"status": "cancelled", "stage": "videos_approval"}
         
         metrics["stages"]["videos_approval"] = {
@@ -324,12 +384,12 @@ def generate_video_task(
             duration_seconds=round(stage_duration, 2),
             approved=True
         )
-        _send_status_notification(chat_id, JobStatus.VIDEOS_APPROVED)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.VIDEOS_APPROVED, job_id))
         
         # ========== STAGE 7: Generate Audio ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="generate_audio", stage_number=7)
-        _send_status_notification(chat_id, JobStatus.GENERATING_AUDIO)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.GENERATING_AUDIO, job_id))
         
         audio_path = _generate_audio(
             audio_service,
@@ -356,7 +416,7 @@ def generate_video_task(
         # ========== STAGE 8: Assemble Final Video ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="assemble_video", stage_number=8)
-        _send_status_notification(chat_id, JobStatus.ASSEMBLING_VIDEO)
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.ASSEMBLING_VIDEO, job_id))
         
         final_video_path = _assemble_final_video(
             ffmpeg_util,
@@ -388,8 +448,13 @@ def generate_video_task(
         # ========== STAGE 9: Send Final Video ==========
         stage_start = time.time()
         logger.info("stage_started", job_id=job_id, stage="send_video", stage_number=9)
-        _send_final_video(chat_id, final_video_path)
-        _send_status_notification(chat_id, JobStatus.COMPLETED)
+        asyncio.run(notification_service.send_final_video(
+            chat_id, 
+            final_video_path, 
+            job_id=job_id,
+            duration_seconds=int(total_duration)
+        ))
+        asyncio.run(notification_service.send_status_update(chat_id, JobStatus.COMPLETED, job_id))
         
         stage_duration = time.time() - stage_start
         metrics["stages"]["send_video"] = {
@@ -443,7 +508,8 @@ def generate_video_task(
         )
         
         # Send error notification to user
-        _send_error_notification(chat_id, e)
+        error_type = _map_exception_to_error_type(e)
+        asyncio.run(notification_service.send_error_message(chat_id, error_type, job_id))
         
         # Cleanup on error
         try:
@@ -473,6 +539,120 @@ def generate_video_task(
 
 # ========== Helper Functions ==========
 
+def _transcribe_voice_message(
+    prompt: str,
+    openai_service: OpenAIService,
+    job_id: str,
+    chat_id: int
+) -> str:
+    """
+    Transcribe voice message from Telegram.
+    
+    Args:
+        prompt: Special marker string in format "__VOICE_MESSAGE__|{file_id}"
+        openai_service: OpenAI service instance
+        job_id: Job identifier for logging
+        chat_id: Telegram chat ID
+        
+    Returns:
+        Transcribed text from the voice message
+        
+    Raises:
+        VideoGenerationError: If transcription fails
+    """
+    try:
+        # Extract file_id from the marker
+        if not prompt.startswith("__VOICE_MESSAGE__|"):
+            raise ValueError(f"Invalid voice message marker format: {prompt}")
+        
+        file_id = prompt.split("|", 1)[1]
+        
+        logger.info(
+            "voice_download_started",
+            job_id=job_id,
+            file_id=file_id
+        )
+        
+        # Initialize Telegram bot
+        bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)
+        
+        # Download voice file from Telegram
+        # We need to run this in an async context
+        async def download_voice():
+            voice_file = await bot.get_file(file_id)
+            voice_bytes = await voice_file.download_as_bytearray()
+            return bytes(voice_bytes)
+        
+        voice_bytes = asyncio.run(download_voice())
+        
+        logger.info(
+            "voice_download_completed",
+            job_id=job_id,
+            file_id=file_id,
+            size_bytes=len(voice_bytes),
+            size_mb=round(len(voice_bytes) / (1024 * 1024), 2)
+        )
+        
+        # Transcribe using OpenAI Whisper
+        logger.info(
+            "voice_transcription_started",
+            job_id=job_id,
+            file_id=file_id
+        )
+        
+        transcribed_text = openai_service.transcribe_audio(
+            audio_file=voice_bytes,
+            filename="voice_message.ogg"
+        )
+        
+        if not transcribed_text or not transcribed_text.strip():
+            raise ValueError("Transcription resulted in empty text")
+        
+        logger.info(
+            "voice_transcription_completed",
+            job_id=job_id,
+            file_id=file_id,
+            transcribed_length=len(transcribed_text),
+            transcribed_words=len(transcribed_text.split())
+        )
+        
+        return transcribed_text.strip()
+        
+    except TelegramError as e:
+        logger.error(
+            "telegram_download_failed",
+            job_id=job_id,
+            error=str(e),
+            exc_info=True
+        )
+        raise VideoGenerationError(
+            f"Failed to download voice message from Telegram: {str(e)}"
+        ) from e
+        
+    except OpenAIServiceError as e:
+        logger.error(
+            "openai_transcription_failed",
+            job_id=job_id,
+            error=str(e),
+            exc_info=True
+        )
+        raise VideoGenerationError(
+            f"Failed to transcribe voice message: {str(e)}"
+        ) from e
+        
+    except Exception as e:
+        logger.error(
+            "voice_processing_failed",
+            job_id=job_id,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True
+        )
+        raise VideoGenerationError(
+            f"Unexpected error processing voice message: {str(e)}"
+        ) from e
+
+
 def _generate_script(
     openai_service: OpenAIService,
     prompt: str,
@@ -491,28 +671,27 @@ def _generate_images(
     video_service: VideoService,
     job_id: str,
     segments,
+    notification_service: NotificationService,
     chat_id: int
 ):
     """Generate images for all segments with progress updates."""
     
-    def progress_callback(current: int, total: int):
-        """Send progress update to user every 10 segments."""
-        if current % Config.PROGRESS_UPDATE_INTERVAL == 0:
-            _send_progress_notification(chat_id, current, total, "images")
-    
     try:
-        # Note: This generates both images AND videos in parallel
-        # We'll need to modify this to only generate images first
-        video_segments = []
+        # Use the new generate_images_only method for Stage 3
+        def progress_callback(current, total):
+            asyncio.run(notification_service.send_progress_update(
+                chat_id, 
+                current, 
+                total, 
+                "генерации изображений",
+                job_id
+            ))
         
-        for segment in segments:
-            # Generate only the image part
-            video_segment = video_service.generate_segment(job_id, segment)
-            video_segments.append(video_segment)
-            
-            # Send progress update
-            if len(video_segments) % Config.PROGRESS_UPDATE_INTERVAL == 0:
-                progress_callback(len(video_segments), len(segments))
+        video_segments = video_service.generate_images_only(
+            job_id,
+            segments,
+            progress_callback=progress_callback
+        )
         
         return video_segments
         
@@ -526,25 +705,29 @@ def _animate_videos(
     runway_service: RunwayService,
     job_id: str,
     video_segments,
+    notification_service: NotificationService,
     chat_id: int
 ):
     """Animate all video segments with progress updates."""
     
-    def progress_callback(current: int, total: int):
-        """Send progress update to user every 10 segments."""
-        if current % Config.PROGRESS_UPDATE_INTERVAL == 0:
-            _send_progress_notification(chat_id, current, total, "videos")
-    
     try:
-        # Animation is already done in generate_segment
-        # This is a placeholder for the actual animation logic
-        # In a real implementation, we'd separate image generation from animation
+        # Use the new animate_images_only method for Stage 5
+        def progress_callback(current, total):
+            asyncio.run(notification_service.send_progress_update(
+                chat_id, 
+                current, 
+                total, 
+                "анимации видео",
+                job_id
+            ))
         
-        for i, segment in enumerate(video_segments):
-            if (i + 1) % Config.PROGRESS_UPDATE_INTERVAL == 0:
-                progress_callback(i + 1, len(video_segments))
+        animated_segments = video_service.animate_images_only(
+            job_id,
+            video_segments,
+            progress_callback=progress_callback
+        )
         
-        return video_segments
+        return animated_segments
         
     except Exception as e:
         logger.error(f"[{job_id}] Video animation failed: {e}")
@@ -622,6 +805,7 @@ def _assemble_final_video(
 def _handle_cancellation(
     job_id: str,
     file_manager: FileManager,
+    notification_service: NotificationService,
     chat_id: int,
     stage: str
 ):
@@ -635,65 +819,49 @@ def _handle_cancellation(
         logger.error(f"[{job_id}] Cleanup failed during cancellation: {e}")
     
     # Send cancellation notification
-    _send_cancellation_notification(chat_id, stage)
+    asyncio.run(notification_service.send_status_update(chat_id, JobStatus.CANCELLED, job_id))
+    asyncio.run(notification_service.send_error_message(chat_id, "approval_timeout", job_id))
 
 
-# ========== Notification Functions ==========
-# These are placeholders - actual implementation will be in bot/notifications.py
+# ========== Helper Functions for Error Mapping ==========
 
-def _send_status_notification(chat_id: int, status: JobStatus):
-    """Send status update to user."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(f"Status notification: chat_id={chat_id}, status={status.value}")
-
-
-def _send_progress_notification(chat_id: int, current: int, total: int, stage: str):
-    """Send progress update to user."""
-    # TODO: Implement via bot/notifications.py
-    percentage = int((current / total) * 100)
-    logger.info(
-        f"Progress notification: chat_id={chat_id}, "
-        f"stage={stage}, progress={current}/{total} ({percentage}%)"
-    )
-
-
-def _send_script_approval_request(chat_id: int, job_id: str, script: str):
-    """Send script with approval buttons."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(f"Script approval request: chat_id={chat_id}, job_id={job_id}")
-
-
-def _send_images_approval_request(chat_id: int, job_id: str, image_paths: list):
-    """Send image preview with approval buttons."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(
-        f"Images approval request: chat_id={chat_id}, "
-        f"job_id={job_id}, images={len(image_paths)}"
-    )
-
-
-def _send_videos_approval_request(chat_id: int, job_id: str, video_paths: list):
-    """Send video preview with approval buttons."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(
-        f"Videos approval request: chat_id={chat_id}, "
-        f"job_id={job_id}, videos={len(video_paths)}"
-    )
-
-
-def _send_final_video(chat_id: int, video_path: str):
-    """Send final video to user."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(f"Sending final video: chat_id={chat_id}, path={video_path}")
-
-
-def _send_error_notification(chat_id: int, error: Exception):
-    """Send error notification to user."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(f"Error notification: chat_id={chat_id}, error={type(error).__name__}")
-
-
-def _send_cancellation_notification(chat_id: int, stage: str):
-    """Send cancellation notification to user."""
-    # TODO: Implement via bot/notifications.py
-    logger.info(f"Cancellation notification: chat_id={chat_id}, stage={stage}")
+def _map_exception_to_error_type(exception: Exception) -> str:
+    """
+    Map exception to user-friendly error type.
+    
+    Args:
+        exception: The exception that occurred
+        
+    Returns:
+        Error type key for ERROR_MESSAGES in NotificationService
+    """
+    error_message = str(exception).lower()
+    exception_type = type(exception).__name__
+    
+    # OpenAI errors
+    if "rate" in error_message and "limit" in error_message:
+        return "openai_rate_limit"
+    elif "openai" in error_message or exception_type == "OpenAIServiceError":
+        return "openai_api_error"
+    
+    # Runway errors
+    elif "timeout" in error_message and "runway" in error_message:
+        return "runway_timeout"
+    elif "runway" in error_message:
+        return "runway_api_error"
+    
+    # FFmpeg errors
+    elif "ffmpeg" in error_message:
+        return "ffmpeg_error"
+    
+    # File errors
+    elif "file" in error_message or "path" in error_message:
+        return "file_error"
+    
+    # Transcription errors
+    elif "transcrib" in error_message or "whisper" in error_message:
+        return "transcription_error"
+    
+    # Default
+    else:
+        return "general_error"

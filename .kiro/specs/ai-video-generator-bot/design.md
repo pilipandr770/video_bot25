@@ -2,7 +2,9 @@
 
 ## Обзор
 
-Система представляет собой Flask веб-приложение, развернутое на Render.com, которое автоматически генерирует 4-минутные рекламные видеоролики на основе текстового или голосового описания пользователя через Telegram бота. Архитектура построена на асинхронной обработке запросов с использованием внешних AI-сервисов (OpenAI, Runway) и FFmpeg для финальной сборки видео.
+Система представляет собой Flask веб-приложение, развернутое на Render.com, которое автоматически генерирует 50-секундные рекламные видеоролики на основе текстового или голосового описания пользователя через Telegram бота. Архитектура построена на асинхронной обработке запросов с использованием внешних AI-сервисов (OpenAI, Runway) и FFmpeg для финальной сборки видео.
+
+**Тестовая версия:** 10 сегментов × 5 секунд = 50 секунд (intro: 15 сек, main: 25 сек, outro: 10 сек)
 
 ### Ключевые Технологии
 
@@ -191,11 +193,17 @@ class MessageProcessor:
 **Основные Методы**:
 ```python
 class OpenAIService:
-    def __init__(self, api_key: str, assistant_id: str):
-        """Инициализация с API ключом и Assistant ID"""
+    def __init__(self, api_key: str, script_assistant_id: str, segment_assistant_id: str, animation_assistant_id: str):
+        """Инициализация с API ключом и тремя специализированными Assistant IDs"""
         
     def generate_script(self, prompt: str) -> str:
-        """Генерация сценария через OpenAI Assistant"""
+        """Генерация сценария через Script Assistant"""
+        
+    def split_and_generate_prompts(self, script: str) -> List[SegmentWithPrompts]:
+        """Разбивка сценария и генерация промптов через Segment Assistant"""
+        
+    def generate_animation_prompt(self, segment_text: str) -> str:
+        """Генерация промпта анимации через Animation Assistant"""
         
     def transcribe_audio(self, audio_file: bytes) -> str:
         """Транскрибация аудио через Whisper API"""
@@ -227,9 +235,10 @@ class ScriptService:
 ```
 
 **Логика Разбивки**:
-- Целевая длительность: 240 секунд (4 минуты)
-- Количество сегментов: 48 (240 / 5)
-- Каждый сегмент содержит: текст, порядковый номер, временную метку
+- Целевая длительность: 50 секунд (тестовая версия)
+- Количество сегментов: 10 (50 / 5)
+- Структура: 3 intro (15 сек) + 4 main (20 сек) + 3 outro (15 сек)
+- Каждый сегмент содержит: текст, порядковый номер, временную метку, тип (intro/main/outro)
 
 ### 5. Runway Service
 
@@ -283,7 +292,7 @@ class VideoService:
 **Оптимизация**:
 - Параллельная генерация до 3 сегментов одновременно
 - Кэширование промежуточных результатов
-- Прогресс-бар для пользователя (каждые 10 сегментов)
+- Прогресс-бар для пользователя (каждые 5 сегментов для 10-сегментной версии)
 
 ### 7. Audio Service
 
@@ -295,8 +304,8 @@ class AudioService:
     def __init__(self, openai_service: OpenAIService):
         """Инициализация с OpenAI сервисом"""
         
-    def generate_audio(self, script: str, target_duration: int = 240) -> str:
-        """Генерация аудио файла с целевой длительностью"""
+    def generate_audio(self, script: str, target_duration: int = 50) -> str:
+        """Генерация аудио файла с целевой длительностью (50 сек для тестовой версии)"""
         
     def adjust_audio_duration(self, audio_path: str, target_duration: int) -> str:
         """Корректировка длительности аудио через FFmpeg"""
@@ -442,10 +451,10 @@ class NotificationService:
         """Отправка сценария с кнопками утверждения"""
         
     def send_images_approval(self, chat_id: int, job_id: str, image_paths: List[str]) -> None:
-        """Отправка превью изображений (первые 5) с кнопками утверждения"""
+        """Отправка превью изображений (первые 3) с кнопками утверждения"""
         
     def send_videos_approval(self, chat_id: int, job_id: str, video_paths: List[str]) -> None:
-        """Отправка превью видео (первые 3) с кнопками утверждения"""
+        """Отправка превью видео (первые 2) с кнопками утверждения"""
 ```
 
 **Inline Keyboards**:
@@ -781,9 +790,7 @@ class Config:
     FFMPEG_PATH = os.getenv("FFMPEG_PATH", "/app/bin/ffmpeg/ffmpeg")
     FFPROBE_PATH = os.getenv("FFPROBE_PATH", "/app/bin/ffmpeg/ffprobe")
     
-    # Video Settings
-    TARGET_VIDEO_DURATION = 240  # 4 минуты
-    SEGMENT_DURATION = 5  # 5 секунд
+    # Video Settings (already defined above, remove duplicates)
     MAX_VIDEO_SIZE_MB = 50  # Лимит Telegram
 ```
 

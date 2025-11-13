@@ -157,19 +157,74 @@ docker run -d -p 6379:6379 redis:alpine
 
 ## Локальный запуск
 
-### 1. Запуск Flask приложения
+### Вариант 1: Docker (Рекомендуется)
+
+Docker обеспечивает изолированную среду и упрощает развертывание.
+
+#### Быстрый старт
+
+```powershell
+# Запустить все сервисы
+docker-compose up -d --build
+
+# Проверить статус
+docker-compose ps
+
+# Просмотреть логи
+docker-compose logs -f
+```
+
+#### Комплексное тестирование
+
+```powershell
+# Windows PowerShell (рекомендуется)
+.\test_docker_local.ps1
+
+# Windows CMD
+test_docker_local.cmd
+
+# Быстрая проверка
+.\docker_quick_test.ps1
+
+# Мониторинг в реальном времени
+.\docker_monitor.ps1
+```
+
+Подробная документация: [DOCKER_LOCAL_TESTING_GUIDE.md](./DOCKER_LOCAL_TESTING_GUIDE.md)
+
+#### Управление контейнерами
+
+```bash
+# Остановить все сервисы
+docker-compose down
+
+# Перезапустить сервис
+docker-compose restart web
+
+# Просмотреть логи конкретного сервиса
+docker-compose logs -f web
+docker-compose logs -f worker
+docker-compose logs -f redis
+
+# Выполнить команду в контейнере
+docker exec -it ai-video-bot-web bash
+```
+
+### Вариант 2: Локальная установка
+
+#### 1. Запуск Flask приложения
 
 ```bash
 python main.py
 ```
 
-### 2. Запуск Celery worker (в отдельном терминале)
+#### 2. Запуск Celery worker (в отдельном терминале)
 
 ```bash
 celery -A app.tasks.celery worker --loglevel=info
 ```
 
-### 3. Настройка webhook для Telegram
+#### 3. Настройка webhook для Telegram
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \

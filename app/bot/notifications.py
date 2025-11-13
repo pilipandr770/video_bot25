@@ -111,11 +111,47 @@ class NotificationService:
         
         logger.info("NotificationService initialized")
     
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        job_id: Optional[str] = None,
+        parse_mode: Optional[str] = None
+    ) -> None:
+        """
+        Send a generic text message to user.
+        
+        Args:
+            chat_id: Telegram chat ID
+            text: Message text
+            job_id: Optional job identifier for logging
+            parse_mode: Optional parse mode (e.g., 'Markdown', 'HTML')
+        """
+        try:
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode
+            )
+            
+            logger.info(
+                f"Message sent: chat_id={chat_id}, job_id={job_id}, "
+                f"text_length={len(text)}"
+            )
+            
+        except TelegramError as e:
+            logger.error(
+                f"Failed to send message: chat_id={chat_id}, "
+                f"job_id={job_id}, error={str(e)}",
+                exc_info=True
+            )
+    
     async def send_status_update(
         self,
         chat_id: int,
         status: JobStatus,
-        job_id: Optional[str] = None
+        job_id: Optional[str] = None,
+        custom_message: Optional[str] = None
     ) -> None:
         """
         Send status update message to user.
@@ -124,8 +160,9 @@ class NotificationService:
             chat_id: Telegram chat ID
             status: Current job status
             job_id: Optional job identifier for logging
+            custom_message: Optional custom message to override default status message
         """
-        message = STATUS_MESSAGES.get(
+        message = custom_message or STATUS_MESSAGES.get(
             status,
             f"📊 Статус: {status.value}"
         )
