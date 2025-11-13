@@ -99,6 +99,27 @@ def generate_video_task(
     # Create job directory
     job_dir = file_manager.create_job_directory(job_id)
     
+    # Create VideoJob record in database
+    from app.models.database import VideoJob as VideoJobDB, get_db_session
+    db = get_db_session()
+    try:
+        video_job = VideoJobDB(
+            id=job_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            prompt=prompt,
+            status='processing'
+        )
+        db.add(video_job)
+        db.commit()
+        logger.info("video_job_created_in_db", job_id=job_id)
+    except Exception as e:
+        logger.error("failed_to_create_video_job", job_id=job_id, error=str(e), exc_info=True)
+        db.rollback()
+        raise VideoGenerationError(f"Failed to create job in database: {str(e)}") from e
+    finally:
+        db.close()
+    
     # Track metrics for each stage
     metrics = {
         "job_id": job_id,
