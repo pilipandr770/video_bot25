@@ -30,34 +30,44 @@ class OpenAIRateLimitError(OpenAIServiceError):
 class OpenAIService:
     """Service for interacting with OpenAI API."""
     
-    def __init__(self, api_key: Optional[str] = None, assistant_id: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None):
         """
         Initialize OpenAI service.
         
         Args:
             api_key: OpenAI API key (defaults to Config.OPENAI_API_KEY)
-            assistant_id: OpenAI Assistant ID (defaults to Config.OPENAI_ASSISTANT_ID)
         """
         self.api_key = api_key or Config.OPENAI_API_KEY
-        self.assistant_id = assistant_id or Config.OPENAI_ASSISTANT_ID
         
         if not self.api_key:
             raise ValueError("OpenAI API key is required")
-        if not self.assistant_id:
-            raise ValueError("OpenAI Assistant ID is required")
+        
+        # Three specialized assistants
+        self.script_assistant_id = Config.OPENAI_SCRIPT_ASSISTANT_ID
+        self.segment_assistant_id = Config.OPENAI_SEGMENT_ASSISTANT_ID
+        self.animation_assistant_id = Config.OPENAI_ANIMATION_ASSISTANT_ID
+        
+        if not self.script_assistant_id:
+            raise ValueError("Script Assistant ID is required")
+        if not self.segment_assistant_id:
+            raise ValueError("Segment Assistant ID is required")
+        if not self.animation_assistant_id:
+            raise ValueError("Animation Assistant ID is required")
         
         self.client = OpenAI(api_key=self.api_key)
         self.max_retries = Config.OPENAI_MAX_RETRIES
         
         logger.info(
             "openai_service_initialized",
-            assistant_id=self.assistant_id,
+            script_assistant_id=self.script_assistant_id,
+            segment_assistant_id=self.segment_assistant_id,
+            animation_assistant_id=self.animation_assistant_id,
             max_retries=self.max_retries
         )
     
     def generate_script(self, prompt: str) -> str:
         """
-        Generate video script using OpenAI Assistant.
+        Generate video script using Script Assistant.
         
         Args:
             prompt: User's description of the video topic
@@ -73,10 +83,114 @@ class OpenAIService:
         logger.info(
             "script_generation_started",
             prompt_length=len(prompt),
-            prompt_preview=prompt[:100]
+            prompt_preview=prompt[:100],
+            assistant_id=self.script_assistant_id
         )
         
-        def _generate():
+        script = self._call_assistant(
+            assistant_id=self.script_assistant_id,
+            user_message=prompt,
+            operation_name="script generation"
+        )
+        
+        duration = time.time() - start_time
+        logger.info(
+            "script_generation_completed",
+            script_length=len(script),
+            script_words=len(script.split()),
+            duration_seconds=round(duration, 2)
+        )
+        
+        return script
+    
+    def generate_image_prompt(self, segment_text: str) -> str:
+        """
+        Generate image prompt using Segment Assistant.
+        
+        Args:
+            segment_text: Text content of the script segment
+            
+        Returns:
+            Image generation prompt for Runway API
+            
+        Raises:
+            OpenAIServiceError: If prompt generation fails after retries
+            OpenAIRateLimitError: If rate limit is exceeded
+        """
+        start_time = time.time()
+        logger.info(
+            "image_prompt_generation_started",
+            segment_text_length=len(segment_text),
+            assistant_id=self.segment_assistant_id
+        )
+        
+        prompt = self._call_assistant(
+            assistant_id=self.segment_assistant_id,
+            user_message=segment_text,
+            operation_name="image prompt generation"
+        )
+        
+        duration = time.time() - start_time
+        logger.info(
+            "image_prompt_generation_completed",
+            prompt_length=len(prompt),
+            duration_seconds=round(duration, 2)
+        )
+        
+        return prompt.strip()
+    
+    def generate_animation_prompt(self, segment_text: str) -> str:
+        """
+        Generate animation prompt using Animation Assistant.
+        
+        Args:
+            segment_text: Text content of the script segment
+            
+        Returns:
+            Animation prompt for Runway API
+            
+        Raises:
+            OpenAIServiceError: If prompt generation fails after retries
+            OpenAIRateLimitError: If rate limit is exceeded
+        """
+        start_time = time.time()
+        logger.info(
+            "animation_prompt_generation_started",
+            segment_text_length=len(segment_text),
+            assistant_id=self.animation_assistant_id
+        )
+        
+        prompt = self._call_assistant(
+            assistant_id=self.animation_assistant_id,
+            user_message=segment_text,
+            operation_name="animation prompt generation"
+        )
+        
+        duration = time.time() - start_time
+        logger.info(
+            "animation_prompt_generation_completed",
+            prompt_length=len(prompt),
+            duration_seconds=round(duration, 2)
+        )
+        
+        return prompt.strip()
+    
+    def _call_assistant(self, assistant_id: str, user_message: str, operation_name: str) -> str:
+        """
+        Call OpenAI Assistant and get response.
+        
+        Args:
+            assistant_id: ID of the assistant to use
+            user_message: Message to send to the assistant
+            operation_name: Name of the operation (for logging)
+            
+        Returns:
+            Assistant's response text
+            
+        Raises:
+            OpenAIServiceError: If assistant call fails
+        """
+        def _call():
             # Create a thread
             thread = self.client.beta.threads.create()
             
@@ -84,13 +198,13 @@ class OpenAIService:
             self.client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
-                content=prompt
+                content=user_message
             )
             
             # Run the assistant
             run = self.client.beta.threads.runs.create(
                 thread_id=thread.id,
-                assistant_id=self.assistant_id
+                assistant_id=assistant_id
             )
             
             # Wait for completion
@@ -121,17 +235,7 @@ class OpenAIService:
             
             raise OpenAIServiceError("No response from assistant")
         
-        script = self._retry_with_backoff(_generate, "script generation")
-        
-        duration = time.time() - start_time
-        logger.info(
-            "script_generation_completed",
-            script_length=len(script),
-            script_words=len(script.split()),
-            duration_seconds=round(duration, 2)
-        )
-        
-        return script
+        return self._retry_with_backoff(_call, operation_name)
     
     def transcribe_audio(self, audio_file: bytes, filename: str = "audio.ogg") -> str:
         """
