@@ -19,7 +19,12 @@ class Config:
     
     # OpenAI Configuration
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+    # Three specialized assistants
+    OPENAI_SCRIPT_ASSISTANT_ID = os.getenv("OPENAI_SCRIPT_ASSISTANT_ID")
+    OPENAI_SEGMENT_ASSISTANT_ID = os.getenv("OPENAI_SEGMENT_ASSISTANT_ID")
+    OPENAI_ANIMATION_ASSISTANT_ID = os.getenv("OPENAI_ANIMATION_ASSISTANT_ID")
+    # Legacy fallback
+    OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID") or os.getenv("OPENAI_SCRIPT_ASSISTANT_ID")
     
     # Runway Configuration
     RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
@@ -69,7 +74,7 @@ class Config:
         required_vars = [
             ("TELEGRAM_BOT_TOKEN", cls.TELEGRAM_BOT_TOKEN),
             ("OPENAI_API_KEY", cls.OPENAI_API_KEY),
-            ("OPENAI_ASSISTANT_ID", cls.OPENAI_ASSISTANT_ID),
+            ("OPENAI_SCRIPT_ASSISTANT_ID", cls.OPENAI_SCRIPT_ASSISTANT_ID),
             ("RUNWAY_API_KEY", cls.RUNWAY_API_KEY),
         ]
         

@@ -1,0 +1,150 @@
+# 🔧 Настройка переменных окружения на Render
+
+## Обязательные переменные для обоих сервисов
+
+### Web Service (ai-video-bot-web)
+
+1. Откройте https://dashboard.render.com
+2. Выберите сервис `ai-video-bot-web`
+3. Перейдите в раздел **Environment**
+4. Добавьте/обновите следующие переменные:
+
+```
+TELEGRAM_BOT_TOKEN=8370296832:AAETV_lHGioGKllkVraWZE2JUOKoFF0gZas
+TELEGRAM_WEBHOOK_URL=https://video-bot25.onrender.com/webhook
+OPENAI_API_KEY=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
+OPENAI_SCRIPT_ASSISTANT_ID=asst_WXKLlApNHBOE42cDSiRNInPR
+OPENAI_SEGMENT_ASSISTANT_ID=asst_your_segment_assistant_id_here
+OPENAI_ANIMATION_ASSISTANT_ID=asst_your_animation_assistant_id_here
+RUNWAY_API_KEY=key_aab54d36a268c5131e075e7e622c2023b6a343118888e1d576d4c15038858ace42302377dd0ba466a0860e0871a28dd7f1acbfd1012d95a45eef095201589035
+```
+
+**Примечание:** Остальные переменные уже настроены в `render.yaml`
+
+---
+
+### Worker Service (ai-video-bot-worker)
+
+1. Откройте https://dashboard.render.com
+2. Выберите сервис `ai-video-bot-worker`
+3. Перейдите в раздел **Environment**
+4. Добавьте/обновите следующие переменные:
+
+```
+TELEGRAM_BOT_TOKEN=8370296832:AAETV_lHGioGKllkVraWZE2JUOKoFF0gZas
+OPENAI_API_KEY=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
+OPENAI_SCRIPT_ASSISTANT_ID=asst_WXKLlApNHBOE42cDSiRNInPR
+OPENAI_SEGMENT_ASSISTANT_ID=asst_your_segment_assistant_id_here
+OPENAI_ANIMATION_ASSISTANT_ID=asst_your_animation_assistant_id_here
+RUNWAY_API_KEY=key_aab54d36a268c5131e075e7e622c2023b6a343118888e1d576d4c15038858ace42302377dd0ba466a0860e0871a28dd7f1acbfd1012d95a45eef095201589035
+```
+
+---
+
+## ⚠️ Важно: Создание OpenAI Assistants
+
+Сейчас у вас есть только **Script Assistant**. Нужно создать еще два:
+
+### 1. Segment Assistant
+
+1. Откройте https://platform.openai.com/playground
+2. Создайте нового Assistant
+3. Скопируйте инструкции из `.kiro/specs/ai-video-generator-bot/segment-assistant-instructions.md`
+4. Сохраните и скопируйте ID (начинается с `asst_`)
+5. Обновите `OPENAI_SEGMENT_ASSISTANT_ID` на Render
+
+### 2. Animation Assistant
+
+1. Откройте https://platform.openai.com/playground
+2. Создайте нового Assistant
+3. Скопируйте инструкции из `.kiro/specs/ai-video-generator-bot/animation-assistant-instructions.md`
+4. Сохраните и скопируйте ID (начинается с `asst_`)
+5. Обновите `OPENAI_ANIMATION_ASSISTANT_ID` на Render
+
+---
+
+## 🚀 После настройки переменных
+
+1. **Сохраните изменения** в Environment
+2. **Render автоматически перезапустит** оба сервиса
+3. **Подождите 2-3 минуты** пока сервисы запустятся
+4. **Проверьте логи** обоих сервисов на наличие ошибок
+
+---
+
+## ✅ Проверка что Worker запущен
+
+### Проверка через Dashboard:
+
+1. Откройте https://dashboard.render.com
+2. Найдите сервис `ai-video-bot-worker`
+3. Статус должен быть **Live** (зеленый)
+4. В логах должно быть:
+
+```
+[INFO/MainProcess] Connected to sqla+postgresql://...
+[INFO/MainProcess] mingle: searching for neighbors
+[INFO/MainProcess] mingle: all alone
+[INFO/MainProcess] celery@... ready.
+```
+
+### Проверка через бота:
+
+1. Отправьте текст боту (например, "Реклама кофе")
+2. Бот должен ответить: "✅ Ваш запрос принят!"
+3. Через 10-30 секунд должно прийти: "📝 Генерирую сценарий..."
+4. Затем сценарий с кнопками одобрения
+
+---
+
+## 🐛 Troubleshooting
+
+### Worker не запускается
+
+**Проверьте логи worker'а:**
+```
+Error: No module named 'app'
+```
+
+**Решение:** Убедитесь, что Dockerfile правильно копирует папку `app/`
+
+---
+
+### "Failed to create job in database"
+
+**Проверьте:**
+- `DATABASE_URL` одинаковый для web и worker
+- `DATABASE_SCHEMA=ai_video_bot` установлен
+
+**Решение:** Проверьте переменные окружения в обоих сервисах
+
+---
+
+### "OpenAI Assistant ID is required"
+
+**Проверьте:**
+- `OPENAI_SCRIPT_ASSISTANT_ID` установлен
+- ID начинается с `asst_`
+
+**Решение:** Создайте Assistant в OpenAI Playground и скопируйте ID
+
+---
+
+## 📊 Мониторинг
+
+### Логи Web Service:
+```
+video_generation_started job_id=...
+video_job_created_in_db job_id=...
+```
+
+### Логи Worker Service:
+```
+[INFO/MainProcess] Task app.tasks.generate_video[...] received
+stage_started stage=generate_script
+stage_completed stage=generate_script
+```
+
+---
+
+**Дата создания:** 13 ноября 2025

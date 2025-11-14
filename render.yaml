@@ -15,7 +15,11 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: OPENAI_ASSISTANT_ID
+      - key: OPENAI_SCRIPT_ASSISTANT_ID
+        sync: false
+      - key: OPENAI_SEGMENT_ASSISTANT_ID
+        sync: false
+      - key: OPENAI_ANIMATION_ASSISTANT_ID
         sync: false
       - key: RUNWAY_API_KEY
         sync: false
@@ -52,9 +56,15 @@ services:
     dockerContext: .
     dockerCommand: celery -A app.tasks worker --loglevel=info --concurrency=2
     envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: OPENAI_ASSISTANT_ID
+      - key: OPENAI_SCRIPT_ASSISTANT_ID
+        sync: false
+      - key: OPENAI_SEGMENT_ASSISTANT_ID
+        sync: false
+      - key: OPENAI_ANIMATION_ASSISTANT_ID
         sync: false
       - key: RUNWAY_API_KEY
         sync: false
